@@ -20,6 +20,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -67,7 +68,9 @@ public class Processor {
      */
     public static final String GROUP = "GROUP";
 
-    /** The number of retries when testing http connection to the function. */
+    /**
+     * The number of retries when testing http connection to the function.
+     */
     private static final int NUM_RETRIES = 20;
 
     /**
@@ -75,10 +78,14 @@ public class Processor {
      */
     private final Map<String, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub> liiklusInstancesPerAddress;
 
-    /** The ordered input streams for the function, in parsed form. */
+    /**
+     * The ordered input streams for the function, in parsed form.
+     */
     private final List<FullyQualifiedTopic> inputs;
 
-    /** The ordered output streams for the function, in parsed form. */
+    /**
+     * The ordered output streams for the function, in parsed form.
+     */
     private final List<FullyQualifiedTopic> outputs;
 
     private final List<String> outputContentTypes;
@@ -202,15 +209,15 @@ public class Processor {
         return fullyQualifiedTopics.stream()
                 .map(FullyQualifiedTopic::getGatewayAddress)
                 .distinct()
-                .map(address -> Map.entry(
-                        address,
-                        NettyChannelBuilder.forTarget(address)
-                                .usePlaintext()
-                                .build()))
-                .map(channelEntry -> Map.entry(
-                        channelEntry.getKey(),
-                        ReactorLiiklusServiceGrpc.newReactorStub(channelEntry.getValue())))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(Collectors.toMap(
+                        address -> address,
+                        address -> ReactorLiiklusServiceGrpc.newReactorStub(
+                                NettyChannelBuilder.forTarget(address)
+                                        .usePlaintext()
+                                        .build())
+                        )
+                )
+                ;
     }
 
     private Flux<OutputSignal> invoke(Flux<InputFrame> in) {
