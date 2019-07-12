@@ -6,12 +6,12 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.Channel;
-import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.projectriff.invoker.rpc.*;
 import io.projectriff.processor.serialization.Message;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Hooks;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -20,7 +20,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -176,9 +175,11 @@ public class Processor {
                     return inputLiiklus.subscribe(subscribeRequestForInput(fullyQualifiedTopic.getTopic()))
                             .filter(SubscribeReply::hasAssignment)
                             .map(SubscribeReply::getAssignment)
-                            .map(Processor::receiveRequestForAssignment)
-                            .flatMap(inputLiiklus::receive)
-                            .doOnNext(receiveReply -> ack(fullyQualifiedTopic, inputLiiklus, receiveReply))
+                            .flatMap(
+                                    assignment -> inputLiiklus
+                                            .receive(receiveRequestForAssignment(assignment))
+                                            .delayUntil(receiveReply -> ack(fullyQualifiedTopic, inputLiiklus, receiveReply, assignment))
+                            )
                             .map(receiveReply -> toRiffSignal(receiveReply, fullyQualifiedTopic));
                 })
                 .compose(this::riffWindowing)
@@ -194,14 +195,14 @@ public class Processor {
                 .blockLast();
     }
 
-    private Empty ack(FullyQualifiedTopic topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply) {
-        System.out.format("ACKing %s for group %s: offset=%d%n", topic.getTopic(), this.group, receiveReply.getRecord().getOffset());
+    private Mono<Empty> ack(FullyQualifiedTopic topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply, Assignment assignment) {
+        System.out.format("ACKing %s for group %s: offset=%d, part=%d%n", topic.getTopic(), this.group, receiveReply.getRecord().getOffset(), assignment.getPartition());
         return stub.ack(AckRequest.newBuilder()
                 .setGroup(this.group)
                 .setOffset(receiveReply.getRecord().getOffset())
-                .setPartition(0) // TODO from assignment
+                .setPartition(assignment.getPartition())
                 .setTopic(topic.getTopic())
-                .build()).block();
+                .build());
     }
 
     private static Map<String, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub> indexByAddress(
