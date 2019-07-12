@@ -3,7 +3,10 @@ package io.projectriff.processor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.bsideup.liiklus.protocol.*;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Empty;
 import com.google.protobuf.InvalidProtocolBufferException;
+import io.grpc.Channel;
+import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.projectriff.invoker.rpc.*;
 import io.projectriff.processor.serialization.Message;
@@ -102,13 +105,13 @@ public class Processor {
 
         assertHttpConnectivity(functionAddress);
 
-        var fnChannel = NettyChannelBuilder.forTarget(functionAddress)
+        Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
                 .usePlaintext()
                 .build();
 
-        var inputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(INPUTS));
-        var outputAdressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(OUTPUTS));
-        var processor = new Processor(
+        List<FullyQualifiedTopic> inputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(INPUTS));
+        List<FullyQualifiedTopic> outputAdressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(OUTPUTS));
+        Processor processor = new Processor(
                 inputAddressableTopics,
                 outputAdressableTopics,
                 parseContentTypes(System.getenv(OUTPUT_CONTENT_TYPES), outputAdressableTopics.size()),
@@ -150,7 +153,7 @@ public class Processor {
 
         this.inputs = inputs;
         this.outputs = outputs;
-        var allGateways = new HashSet<>(inputs);
+        Set<FullyQualifiedTopic> allGateways = new HashSet<>(inputs);
         allGateways.addAll(outputs);
 
         this.liiklusInstancesPerAddress = indexByAddress(allGateways);
@@ -162,25 +165,36 @@ public class Processor {
     public void run() {
         Flux.fromIterable(inputs)
                 .flatMap(fullyQualifiedTopic -> {
-                    var inputLiiklus = liiklusInstancesPerAddress.get(fullyQualifiedTopic.getGatewayAddress());
+                    ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub inputLiiklus = liiklusInstancesPerAddress.get(fullyQualifiedTopic.getGatewayAddress());
                     return inputLiiklus.subscribe(subscribeRequestForInput(fullyQualifiedTopic.getTopic()))
                             .filter(SubscribeReply::hasAssignment)
                             .map(SubscribeReply::getAssignment)
                             .map(Processor::receiveRequestForAssignment)
                             .flatMap(inputLiiklus::receive)
+                            .doOnNext(receiveReply -> ack(fullyQualifiedTopic, inputLiiklus, receiveReply))
                             .map(receiveReply -> toRiffSignal(receiveReply, fullyQualifiedTopic));
                 })
                 .compose(this::riffWindowing)
                 .map(this::invoke)
                 .concatMap(flux ->
                         flux.concatMap(m -> {
-                            var next = m.getData();
-                            var output = outputs.get(next.getResultIndex());
-                            var outputLiiklus = liiklusInstancesPerAddress.get(output.getGatewayAddress());
+                            OutputFrame next = m.getData();
+                            FullyQualifiedTopic output = outputs.get(next.getResultIndex());
+                            ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub outputLiiklus = liiklusInstancesPerAddress.get(output.getGatewayAddress());
                             return outputLiiklus.publish(createPublishRequest(next, output.getTopic()));
                         })
                 )
                 .blockLast();
+    }
+
+    private Empty ack(FullyQualifiedTopic topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply) {
+        System.out.format("ACKing %s for group %s: offset=%d%n", topic.getTopic(), this.group, receiveReply.getRecord().getOffset());
+        return stub.ack(AckRequest.newBuilder()
+                .setGroup(this.group)
+                .setOffset(receiveReply.getRecord().getOffset())
+                .setPartition(0) // TODO from assignment
+                .setTopic(topic.getTopic())
+                .build()).block();
     }
 
     private static Map<String, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub> indexByAddress(
@@ -200,7 +214,7 @@ public class Processor {
     }
 
     private Flux<OutputSignal> invoke(Flux<InputFrame> in) {
-        var start = InputSignal.newBuilder()
+        InputSignal start = InputSignal.newBuilder()
                 .setStart(StartFrame.newBuilder()
                         .addAllExpectedContentTypes(this.outputContentTypes)
                         .build())
@@ -239,7 +253,7 @@ public class Processor {
      * This converts a liiklus received message (representing an at-rest riff {@link Message}) into an RPC {@link InputFrame}.
      */
     private InputFrame toRiffSignal(ReceiveReply receiveReply, FullyQualifiedTopic fullyQualifiedTopic) {
-        var inputIndex = inputs.indexOf(fullyQualifiedTopic);
+        int inputIndex = inputs.indexOf(fullyQualifiedTopic);
         if (inputIndex == -1) {
             throw new RuntimeException("Unknown topic: " + fullyQualifiedTopic);
         }
