@@ -57,8 +57,6 @@ public class Processor {
 
     /**
      * ENV VAR key holding the serialized list of content-types expected on the output streams.
-     *
-     * @see StreamOutputContentTypes
      */
     private static final String OUTPUT_CONTENT_TYPES = "OUTPUT_CONTENT_TYPES";
 
@@ -289,7 +287,8 @@ public class Processor {
 
     private static List<String> parseContentTypes(String json, int outputCount) {
         try {
-            List<String> contentTypes = new ObjectMapper().readValue(json, StreamOutputContentTypes.class).getContentTypes();
+            ObjectMapper objectMapper = new ObjectMapper();
+            List<String> contentTypes = objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
             int actualSize = contentTypes.size();
             if (actualSize != outputCount) {
                 throw new RuntimeException(

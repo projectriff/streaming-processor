@@ -72,9 +72,6 @@ Should be unique _per_ deployment of the *processor* (not _per_ function),
 +
 [source,json]
 ----
-[
-    {"outputIndex": 0, "contentType": "text/plain"},
-    {"outputIndex": 1, "contentType": "application/json"}
-]
+["text/plain","application/json"]
 ----
 
