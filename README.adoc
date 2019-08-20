@@ -1,4 +1,6 @@
-= Riff Function Streaming Processor
+= riff Function Streaming Processor
+
+image:https://travis-ci.com/projectriff/streaming-processor.svg?branch=master["Build Status", link="https://travis-ci.com/projectriff/streaming-processor"]
 
 This repository contains the sources of the riff function streaming processor, a component used when dealing with
 streaming functions.
