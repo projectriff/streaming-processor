@@ -1,0 +1,16 @@
+sudo: false
+language: java
+cache:
+  directories:
+    - $HOME/.m2
+jdk:
+  - openjdk8
+os:
+  - linux
+install: true
+script:
+  - mvn -q -B -V test
+deploy:
+  skip_cleanup: true
+  provider: script
+  script: bash ci/deploy-image.sh
