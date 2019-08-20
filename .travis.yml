@@ -14,3 +14,6 @@ deploy:
   skip_cleanup: true
   provider: script
   script: bash ci/deploy-image.sh
+  on:
+    all_branches: true
+    condition: ${TRAVIS_EVENT_TYPE} = push && (${TRAVIS_BRANCH} = master || ${TRAVIS_BRANCH} =~ ^v([0-9]+\.)+x$)
