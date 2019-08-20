@@ -10,7 +10,7 @@ When dealing with streaming functions, one creates a `processor` in riff like so
 
 [source, bash]
 ----
-riff processor create example --function-ref some-existing-fn \
+riff streaming processor create example --function-ref some-existing-fn \
     --input  input-stream \
     --input  maybe-another-input \
     --output some-output-stream \
