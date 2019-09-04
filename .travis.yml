@@ -2,18 +2,22 @@ sudo: false
 language: java
 cache:
   directories:
-    - $HOME/.m2
+  - "$HOME/.m2"
 jdk:
-  - openjdk8
+- openjdk8
 os:
-  - linux
+- linux
 install: true
 script:
-  - mvn -q -B -V test
+- mvn -q -B -V test
 deploy:
   skip_cleanup: true
   provider: script
   script: bash ci/deploy-image.sh
   on:
     all_branches: true
-    condition: ${TRAVIS_EVENT_TYPE} = push && (${TRAVIS_BRANCH} = master || ${TRAVIS_BRANCH} =~ ^v([0-9]+\.)+x$)
+    condition: "${TRAVIS_EVENT_TYPE} = push && (${TRAVIS_BRANCH} = master || ${TRAVIS_BRANCH}
+      =~ ^v([0-9]+\\.)+x$)"
+notifications:
+  slack:
+    secure: CEdPA5yGDY41tXnijhFIbtBwO7cdybhJuAQ1Eu4ita3BDM/zYq0UZhiLxP9h6FxqXds7cbIyS4rfdOyYwjl870fUmhEpNo8r/nF2g7aTYwbFbap7WPpSy9UZUENxIvmzRklSsKqZIh1k3XDE1QkTyyNlrk34618GpMaUbSRCpIiysY05RO8NOyBwHXV11uq2j0HbcO1rULbdDIyfWcmul/G3NhrzoNPS8n/hCsCVDQLbb+EZlUHV9iIE0wm+Zb60Zu4mXbABJZBp0lIGIqjgnBeD/KSIr2qhLOWLOXGq7dbZFupolMJRfAyODPuodkH0WOVHPHKcVrb/LfG9pPALXMeTTN/NebivjdaTUpRUroJ5GrYyxULfZoATolLtpkk5f2L0ki3AH0zbgBGPMAZwu1nwH7NVe844PyWVqduORH3R/zs/NPzQ5WWfkpyRHbbX9kxpNI7wb6/YgGTHAWAqpvusH8A/L0curtaJWVpWJbJdfg/ohsrsP7vpo0He9Ns19PuVTl8mxoBnGR/TxpwCgovkM56JL/FBc/GsNQK9A1cZxBD/mPg9rqq5JTUQXr446YgMJQo1+BdyCp3cjn67x/VOjRWiRNymrTcT2MDaJZTvk8IGJyhsEhxbhq5Ep2m3Gv/zVm/3vfOyRmjafQJz9qi1Jw5V8ZFX1LQbbuVg3mM=
