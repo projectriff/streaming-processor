@@ -23,7 +23,7 @@ function main() {
   echo "Deploying ${base_image} (latest and ${version})"
   deploy "${base_image}"
   deploy "${base_image}:${version}"
-  deploy "${base_image}:${version}-${commit}"
+  deploy "${base_image}:${version}-${commit:0:16}"
 }
 
 main
