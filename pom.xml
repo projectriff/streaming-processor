@@ -24,7 +24,7 @@
 		<grpc.version>1.23.0</grpc.version>
 		<protoc.version>3.7.1</protoc.version>
 		<reactive-grpc.version>1.0.0</reactive-grpc.version>
-		<reactor.version>3.2.12.RELEASE</reactor.version>
+		<reactor.version>3.3.0.RELEASE</reactor.version>
 	</properties>
 
 	<dependencies>
