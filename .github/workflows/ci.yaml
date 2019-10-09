@@ -1,0 +1,35 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.x'
+    - name: Build & Test
+      run: ./mvnw -q -B -V test
+
+  publish:
+    needs: test
+    if: |
+      github.event_name == 'push' && (
+        github.ref == 'refs/heads/master' || (
+          startsWith(github.ref, 'refs/heads/v') && endsWith(github.ref, 'x')
+        )
+      )
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.x'
+    - name: Publish artifacts
+      run: .github/workflows/deploy-image.sh
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
