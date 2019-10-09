@@ -14,11 +14,11 @@ function deploy() {
 }
 
 function main() {
+  ./mvnw -q -B compile -Dmaven.test.skip=true
+
   base_image="projectriff/streaming-processor"
   version=$(get_maven_project_version)
   commit=$(git rev-parse HEAD)
-
-  ./mvnw -q -B package -Dmaven.test.skip=true
 
   echo "Deploying ${base_image} (latest and ${version})"
   deploy "${base_image}"
