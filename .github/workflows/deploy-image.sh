@@ -14,14 +14,16 @@ function deploy() {
 function main() {
   ./mvnw -q -B compile -Dmaven.test.skip=true
 
-  base_image="projectriff/streaming-processor"
-  version=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout | tail -n1)
-  commit=$(git rev-parse HEAD)
+  local base_image="projectriff/streaming-processor"
+  local version=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout | tail -n1)
+  local git_sha=$(git rev-parse HEAD)
+  local git_timestamp=$(TZ=UTC git show --quiet --date='format-local:%Y%m%d%H%M%S' --format="%cd")
+  local slug=${version}-${git_timestamp}-${git_sha:0:16}
 
-  echo "Deploying ${base_image} (latest and ${version})"
+  echo "Deploying ${base_image} (latest, ${version} and ${slug})"
   deploy "${base_image}"
   deploy "${base_image}:${version}"
-  deploy "${base_image}:${version}-${commit:0:16}"
+  deploy "${base_image}:${slug}"
 }
 
 main
