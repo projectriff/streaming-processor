@@ -41,31 +41,31 @@ public class Processor {
      *
      * @see FullyQualifiedTopic
      */
-    public static final String INPUTS = "INPUTS";
+    private static final String INPUTS = "INPUTS";
 
     /**
      * ENV VAR key holding the coordinates of the output streams, as a comma separated list of {@code gatewayAddress:port/streamName}.
      *
      * @see FullyQualifiedTopic
      */
-    public static final String OUTPUTS = "OUTPUTS";
+    private static final String OUTPUTS = "OUTPUTS";
 
     /**
      * ENV VAR key holding the address of the function RPC, as a {@code host:port} string.
      */
-    public static final String FUNCTION = "FUNCTION";
+    private static final String FUNCTION = "FUNCTION";
 
     /**
      * ENV VAR key holding the serialized list of content-types expected on the output streams.
      *
      * @see StreamOutputContentTypes
      */
-    public static final String OUTPUT_CONTENT_TYPES = "OUTPUT_CONTENT_TYPES";
+    private static final String OUTPUT_CONTENT_TYPES = "OUTPUT_CONTENT_TYPES";
 
     /**
      * ENV VAR key holding the consumer group string this process should use.
      */
-    public static final String GROUP = "GROUP";
+    private static final String GROUP = "GROUP";
 
     /**
      * The number of retries when testing http connection to the function.
