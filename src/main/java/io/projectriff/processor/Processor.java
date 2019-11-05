@@ -78,6 +78,16 @@ public class Processor {
     private static final String OUTPUT_CONTENT_TYPES = "OUTPUT_CONTENT_TYPES";
 
     /**
+     * ENV VAR key holding the logical names for input parameter names, as a comma separated list of strings.
+     */
+    private static final String INPUT_NAMES = "INPUT_NAMES";
+
+    /**
+     * ENV VAR key holding the logical names for output result names, as a comma separated list of strings.
+     */
+    private static final String OUTPUT_NAMES = "OUTPUT_NAMES";
+
+    /**
      * ENV VAR key holding the consumer group string this process should use.
      */
     private static final String GROUP = "GROUP";
@@ -102,6 +112,19 @@ public class Processor {
      */
     private final List<FullyQualifiedTopic> outputs;
 
+    /**
+     * The ordered logical names for input parameters of the function.
+     */
+    private final List<String> inputNames;
+
+    /**
+     * The ordered logical names for output results of the function.
+     */
+    private final List<String> outputNames;
+
+    /**
+     * The ordered list of expected content-types for function results.
+     */
     private final List<String> outputContentTypes;
 
     /**
@@ -124,18 +147,23 @@ public class Processor {
 
         String functionAddress = System.getenv(FUNCTION);
 
-        assertHttpConnectivity(functionAddress);
+        List<FullyQualifiedTopic> inputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(INPUTS));
+        List<FullyQualifiedTopic> outputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(OUTPUTS));
+        List<String> inputNames = parseCSV(INPUT_NAMES, inputAddressableTopics.size());
+        List<String> outputNames = parseCSV(OUTPUT_NAMES, outputAddressableTopics.size());
+        List<String> outputContentTypes = parseContentTypes(System.getenv(OUTPUT_CONTENT_TYPES), outputAddressableTopics.size());
 
+        assertHttpConnectivity(functionAddress);
         Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
                 .usePlaintext()
                 .build();
 
-        List<FullyQualifiedTopic> inputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(INPUTS));
-        List<FullyQualifiedTopic> outputAdressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(OUTPUTS));
         Processor processor = new Processor(
                 inputAddressableTopics,
-                outputAdressableTopics,
-                parseContentTypes(System.getenv(OUTPUT_CONTENT_TYPES), outputAdressableTopics.size()),
+                outputAddressableTopics,
+                inputNames,
+                outputNames,
+                outputContentTypes,
                 System.getenv(GROUP),
                 ReactorRiffGrpc.newReactorStub(fnChannel));
 
@@ -144,7 +172,7 @@ public class Processor {
     }
 
     private static void checkEnvironmentVariables() {
-        List<String> envVars = Arrays.asList(INPUTS, OUTPUTS, OUTPUT_CONTENT_TYPES, FUNCTION, GROUP);
+        List<String> envVars = Arrays.asList(INPUTS, OUTPUTS, OUTPUT_CONTENT_TYPES, FUNCTION, GROUP, INPUT_NAMES, OUTPUT_NAMES);
         if (envVars.stream()
                 .anyMatch(v -> (System.getenv(v) == null || System.getenv(v).trim().length() == 0))) {
             System.err.format("Missing one of the following environment variables: %s%n", envVars);
@@ -166,14 +194,18 @@ public class Processor {
         }
     }
 
-    public Processor(List<FullyQualifiedTopic> inputs,
-                     List<FullyQualifiedTopic> outputs,
-                     List<String> outputContentTypes,
-                     String group,
-                     ReactorRiffGrpc.ReactorRiffStub riffStub) {
+    private Processor(List<FullyQualifiedTopic> inputs,
+                      List<FullyQualifiedTopic> outputs,
+                      List<String> inputNames,
+                      List<String> outputNames,
+                      List<String> outputContentTypes,
+                      String group,
+                      ReactorRiffGrpc.ReactorRiffStub riffStub) {
 
         this.inputs = inputs;
         this.outputs = outputs;
+        this.inputNames = inputNames;
+        this.outputNames = outputNames;
         Set<FullyQualifiedTopic> allGateways = new HashSet<>(inputs);
         allGateways.addAll(outputs);
 
@@ -197,7 +229,7 @@ public class Processor {
                             )
                             .map(receiveReply -> toRiffSignal(receiveReply, fullyQualifiedTopic));
                 })
-                .compose(this::riffWindowing)
+                .transform(this::riffWindowing)
                 .map(this::invoke)
                 .concatMap(flux ->
                         flux.concatMap(m -> {
@@ -240,6 +272,8 @@ public class Processor {
         InputSignal start = InputSignal.newBuilder()
                 .setStart(StartFrame.newBuilder()
                         .addAllExpectedContentTypes(this.outputContentTypes)
+                        .addAllInputNames(this.inputNames)
+                        .addAllOutputNames(this.outputNames)
                         .build())
                 .build();
 
@@ -314,7 +348,16 @@ public class Processor {
             }
             return contentTypes;
         } catch (IOException e) {
-            throw new RuntimeException(e.getMessage(), e);
+            throw new RuntimeException(e);
         }
+    }
+
+    private static List<String> parseCSV(String envVarName, int expectedSize) {
+        String[] split = System.getenv(envVarName).split(",");
+        if (split.length != expectedSize) {
+            throw new RuntimeException(String.format("Expected a list of %d values in variable %s, got %d: \"%s\"",
+                    expectedSize, envVarName, split.length, System.getenv(envVarName)));
+        }
+        return Arrays.asList(split);
     }
 }

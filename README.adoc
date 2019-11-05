@@ -12,9 +12,9 @@ When dealing with streaming functions, one creates a `processor` in riff like so
 ----
 riff streaming processor create example --function-ref some-existing-fn \
     --input  input-stream \
-    --input  maybe-another-input \
+    --input  i2:maybe-another-input \
     --output some-output-stream \
-    --output maybe-another \
+    --output out3:maybe-another \
     --output even-a-third
 ----
 
@@ -65,8 +65,12 @@ When run, the processor expects the following environment variables to be set:
 
 - `INPUTS`: a comma separated list of N input stream coordinates, in the form `gatewayHost:port/topicName`,
 - `OUTPUTS`: a comma separated list of M output stream coordinates, in the form `gatewayHost:port/topicName`,
+- `INPUT_NAMES`: a comma separated list of N input parameter logical names,
+- `OUTPUT_NAMES`: a comma separated list of M output result logical names,
 - `GROUP`: a string identifier that will be used as the _consumer group_ for the processor.
+
 Should be unique _per_ deployment of the *processor* (not _per_ function),
+
 - `FUNCTION`: location of the function RPC server, in the form `host:port`,
 - `OUTPUT_CONTENT_TYPES`: a json encoding of the content types expected for the M output streams, in the form
 +
