@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v1
     - uses: actions/setup-java@v1
       with:
-        java-version: '8.x'
+        java-version: '11.x'
     - name: Build & Test
       run: ./mvnw -q -B -V test
 
@@ -32,9 +32,14 @@ jobs:
     - uses: actions/checkout@v1
     - uses: actions/setup-java@v1
       with:
-        java-version: '8.x'
+        java-version: '11.x'
     - name: Publish artifacts
       run: .github/workflows/deploy-image.sh
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Publish native artifacts
+      run: .github/workflows/deploy-native-image.sh
       env:
         DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}

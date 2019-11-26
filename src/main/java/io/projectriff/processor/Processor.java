@@ -13,7 +13,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.Channel;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.NettyChannelBuilder;
 import io.projectriff.invoker.rpc.InputFrame;
 import io.projectriff.invoker.rpc.InputSignal;
 import io.projectriff.invoker.rpc.OutputFrame;
@@ -141,6 +141,8 @@ public class Processor {
 
     public static void main(String[] args) throws Exception {
 
+        long t0 = System.currentTimeMillis();
+
         checkEnvironmentVariables();
 
         Hooks.onOperatorDebug();
@@ -167,7 +169,8 @@ public class Processor {
                 System.getenv(GROUP),
                 ReactorRiffGrpc.newReactorStub(fnChannel));
 
-        processor.run();
+                System.out.format("Connected to %s, after %d ms\n", functionAddress, System.currentTimeMillis() - t0);
+                processor.run();
 
     }
 

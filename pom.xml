@@ -32,7 +32,7 @@
 		<!-- GRPC -->
 		<dependency>
 			<groupId>io.grpc</groupId>
-			<artifactId>grpc-netty-shaded</artifactId>
+			<artifactId>grpc-netty</artifactId>
 			<version>${grpc.version}</version>
 		</dependency>
 		<dependency>
@@ -73,6 +73,11 @@
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-classic</artifactId>
 			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.experimental</groupId>
+			<artifactId>spring-graal-native-feature</artifactId>
+			<version>0.6.0.BUILD-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
 
