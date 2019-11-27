@@ -1,6 +1,5 @@
 package io.projectriff.processor;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.bsideup.liiklus.protocol.AckRequest;
 import com.github.bsideup.liiklus.protocol.Assignment;
 import com.github.bsideup.liiklus.protocol.PublishRequest;
@@ -30,14 +29,14 @@ import java.net.ConnectException;
 import java.net.Socket;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Main driver class for the streaming processor.
@@ -54,28 +53,14 @@ import java.util.stream.Collectors;
 public class Processor {
 
     /**
-     * ENV VAR key holding the coordinates of the input streams, as a comma separated list of {@code gatewayAddress:port/streamName}.
-     *
-     * @see FullyQualifiedTopic
+     * ENV VAR key holding the directory path where streams metadata can be found.
      */
-    private static final String INPUTS = "INPUTS";
-
-    /**
-     * ENV VAR key holding the coordinates of the output streams, as a comma separated list of {@code gatewayAddress:port/streamName}.
-     *
-     * @see FullyQualifiedTopic
-     */
-    private static final String OUTPUTS = "OUTPUTS";
+    private static final String CNB_BINDINGS = "CNB_BINDINGS";
 
     /**
      * ENV VAR key holding the address of the function RPC, as a {@code host:port} string.
      */
     private static final String FUNCTION = "FUNCTION";
-
-    /**
-     * ENV VAR key holding the serialized list of content-types expected on the output streams.
-     */
-    private static final String OUTPUT_CONTENT_TYPES = "OUTPUT_CONTENT_TYPES";
 
     /**
      * ENV VAR key holding the logical names for input parameter names, as a comma separated list of strings.
@@ -149,11 +134,12 @@ public class Processor {
 
         String functionAddress = System.getenv(FUNCTION);
 
-        List<FullyQualifiedTopic> inputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(INPUTS));
-        List<FullyQualifiedTopic> outputAddressableTopics = FullyQualifiedTopic.parseMultiple(System.getenv(OUTPUTS));
-        List<String> inputNames = parseCSV(INPUT_NAMES, inputAddressableTopics.size());
-        List<String> outputNames = parseCSV(OUTPUT_NAMES, outputAddressableTopics.size());
-        List<String> outputContentTypes = parseContentTypes(System.getenv(OUTPUT_CONTENT_TYPES), outputAddressableTopics.size());
+        List<String> inputNames = Arrays.asList(System.getenv(INPUT_NAMES).split(","));
+        List<String> outputNames = Arrays.asList(System.getenv(OUTPUT_NAMES).split(","));
+
+        List<FullyQualifiedTopic> inputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "input", inputNames.size());
+        List<FullyQualifiedTopic> outputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "output", outputNames.size());
+        List<String> outputContentTypes = resolveContentTypes(System.getenv(CNB_BINDINGS), outputNames.size());
 
         assertHttpConnectivity(functionAddress);
         Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
@@ -175,7 +161,7 @@ public class Processor {
     }
 
     private static void checkEnvironmentVariables() {
-        List<String> envVars = Arrays.asList(INPUTS, OUTPUTS, OUTPUT_CONTENT_TYPES, FUNCTION, GROUP, INPUT_NAMES, OUTPUT_NAMES);
+        List<String> envVars = Arrays.asList(FUNCTION, GROUP, INPUT_NAMES, OUTPUT_NAMES, CNB_BINDINGS);
         if (envVars.stream()
                 .anyMatch(v -> (System.getenv(v) == null || System.getenv(v).trim().length() == 0))) {
             System.err.format("Missing one of the following environment variables: %s%n", envVars);
@@ -216,6 +202,23 @@ public class Processor {
         this.outputContentTypes = outputContentTypes;
         this.riffStub = riffStub;
         this.group = group;
+    }
+
+    public static List<FullyQualifiedTopic> resolveStreams(String bindingsDir, String prefix, int count) {
+        return IntStream.range(0, count)
+                .mapToObj(i -> resolveStream(bindingsDir, String.format("%s_%03d", prefix, i)))
+                .collect(Collectors.toList());
+    }
+
+    private static FullyQualifiedTopic resolveStream(String bindingsDir, String path) {
+        Path root = Paths.get(bindingsDir).resolve(path).resolve("secret");
+        try {
+            String gateway = new String(Files.readAllBytes(root.resolve("gateway")), StandardCharsets.UTF_8);
+            String topic = new String(Files.readAllBytes(root.resolve("topic")), StandardCharsets.UTF_8);
+            return new FullyQualifiedTopic(gateway, topic);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public void run() {
@@ -339,28 +342,12 @@ public class Processor {
                 .build();
     }
 
-    private static List<String> parseContentTypes(String json, int outputCount) {
-        try {
-            ObjectMapper objectMapper = new ObjectMapper();
-            List<String> contentTypes = objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            int actualSize = contentTypes.size();
-            if (actualSize != outputCount) {
-                throw new RuntimeException(
-                        String.format("Expected %d output stream content type(s), got %d.%n\tSee %s", outputCount, actualSize, json)
-                );
-            }
-            return contentTypes;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    private static List<String> resolveContentTypes(String bindingsDir, int count) throws IOException {
+        List<String> result = new ArrayList<>();
+        for (int i = 0 ; i < count ; i++) {
+            Path path = Paths.get(bindingsDir).resolve(String.format("output_%03d", i)).resolve("metadata").resolve("contentType");
+            result.add(new String(Files.readAllBytes(path), StandardCharsets.UTF_8));
         }
-    }
-
-    private static List<String> parseCSV(String envVarName, int expectedSize) {
-        String[] split = System.getenv(envVarName).split(",");
-        if (split.length != expectedSize) {
-            throw new RuntimeException(String.format("Expected a list of %d values in variable %s, got %d: \"%s\"",
-                    expectedSize, envVarName, split.length, System.getenv(envVarName)));
-        }
-        return Arrays.asList(split);
+        return result;
     }
 }
