@@ -1,4 +1,4 @@
-FROM oracle/graalvm-ce:19.3.0-java11 AS native
+FROM oracle/graalvm-ce:19.2.0.1 AS native
 RUN gu install native-image
 COPY target/*.jar /tmp/app.jar
 RUN mkdir /tmp/app && cd /tmp/app && jar -xvf /tmp/app.jar
