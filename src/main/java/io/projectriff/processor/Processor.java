@@ -20,9 +20,7 @@ import io.projectriff.invoker.rpc.OutputSignal;
 import io.projectriff.invoker.rpc.ReactorRiffGrpc;
 import io.projectriff.invoker.rpc.StartFrame;
 import io.projectriff.processor.serialization.Message;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Hooks;
-import reactor.core.publisher.Mono;
+import reactor.core.publisher.*;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -117,6 +115,8 @@ public class Processor {
      */
     private final String group;
 
+    private UnicastProcessor killSignal = UnicastProcessor.create();
+
     /**
      * The RPC stub used to communicate with the function process.
      *
@@ -155,8 +155,21 @@ public class Processor {
                 System.getenv(GROUP),
                 ReactorRiffGrpc.newReactorStub(fnChannel));
 
-                System.out.format("Connected to %s, after %d ms\n", functionAddress, System.currentTimeMillis() - t0);
-                processor.run();
+        System.out.format("Connected to %s, after %d ms\n", functionAddress, System.currentTimeMillis() - t0);
+
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                processor.killSignal.sink().complete();
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                }
+            }
+        });
+
+
+        processor.run();
 
     }
 
@@ -235,6 +248,7 @@ public class Processor {
                             )
                             .map(receiveReply -> toRiffSignal(receiveReply, fullyQualifiedTopic));
                 })
+                .takeUntilOther(killSignal)
                 .transform(this::riffWindowing)
                 .map(this::invoke)
                 .concatMap(flux ->
@@ -344,7 +358,7 @@ public class Processor {
 
     private static List<String> resolveContentTypes(String bindingsDir, int count) throws IOException {
         List<String> result = new ArrayList<>();
-        for (int i = 0 ; i < count ; i++) {
+        for (int i = 0; i < count; i++) {
             Path path = Paths.get(bindingsDir).resolve(String.format("output_%03d", i)).resolve("metadata").resolve("contentType");
             result.add(new String(Files.readAllBytes(path), StandardCharsets.UTF_8));
         }
