@@ -63,19 +63,8 @@ mvn package com.google.cloud.tools:jib-maven-plugin:1.3.0:build -Dimage=<MY IMAG
 == Running
 When run, the processor expects the following environment variables to be set:
 
-- `INPUTS`: a comma separated list of N input stream coordinates, in the form `gatewayHost:port/topicName`,
-- `OUTPUTS`: a comma separated list of M output stream coordinates, in the form `gatewayHost:port/topicName`,
 - `INPUT_NAMES`: a comma separated list of N input parameter logical names,
 - `OUTPUT_NAMES`: a comma separated list of M output result logical names,
 - `GROUP`: a string identifier that will be used as the _consumer group_ for the processor.
-
-Should be unique _per_ deployment of the *processor* (not _per_ function),
-
 - `FUNCTION`: location of the function RPC server, in the form `host:port`,
-- `OUTPUT_CONTENT_TYPES`: a json encoding of the content types expected for the M output streams, in the form
-+
-[source,json]
-----
-["text/plain","application/json"]
-----
-
+- `CNB_BINDINGS`: directory location of stream https://github.com/projectriff/riff/blob/master/rfc/rfc-0002-bindings.md[bindings information]. The processor will read N bindings at `$CNB_BINDINGS/input_xxx` and M bindings at `$CNB_BINDINGS/output_xxx`.
