@@ -21,6 +21,7 @@ import io.projectriff.invoker.rpc.ReactorRiffGrpc;
 import io.projectriff.invoker.rpc.StartFrame;
 import io.projectriff.processor.serialization.Message;
 import reactor.core.publisher.*;
+import reactor.util.function.Tuple2;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -71,6 +72,11 @@ public class Processor {
     private static final String OUTPUT_NAMES = "OUTPUT_NAMES";
 
     /**
+     * ENV VAR key holding the start offsets for each input stream, as a comma separated list of either "earliest" or "latest".
+     */
+    private static final String INPUT_START_OFFSETS = "INPUT_START_OFFSETS";
+
+    /**
      * ENV VAR key holding the consumer group string this process should use.
      */
     private static final String GROUP = "GROUP";
@@ -101,6 +107,11 @@ public class Processor {
     private final List<String> inputNames;
 
     /**
+     * For each input stream, whether to subscribe at earliest or latest offset.
+     */
+    private final List<String> startOffsets;
+
+    /**
      * The ordered logical names for output results of the function.
      */
     private final List<String> outputNames;
@@ -115,6 +126,9 @@ public class Processor {
      */
     private final String group;
 
+    /**
+     * This is used in a shutdown hook to force completion of the input signals Flux via takeUntilOther().
+     */
     private UnicastProcessor killSignal = UnicastProcessor.create();
 
     /**
@@ -140,6 +154,7 @@ public class Processor {
         List<FullyQualifiedTopic> inputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "input", inputNames.size());
         List<FullyQualifiedTopic> outputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "output", outputNames.size());
         List<String> outputContentTypes = resolveContentTypes(System.getenv(CNB_BINDINGS), outputNames.size());
+        List<String> startOffsets = Arrays.asList(System.getenv(INPUT_START_OFFSETS).split(","));
 
         assertHttpConnectivity(functionAddress);
         Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
@@ -150,6 +165,7 @@ public class Processor {
                 inputAddressableTopics,
                 outputAddressableTopics,
                 inputNames,
+                startOffsets,
                 outputNames,
                 outputContentTypes,
                 System.getenv(GROUP),
@@ -174,7 +190,7 @@ public class Processor {
     }
 
     private static void checkEnvironmentVariables() {
-        List<String> envVars = Arrays.asList(FUNCTION, GROUP, INPUT_NAMES, OUTPUT_NAMES, CNB_BINDINGS);
+        List<String> envVars = Arrays.asList(FUNCTION, GROUP, INPUT_NAMES, OUTPUT_NAMES, INPUT_START_OFFSETS, CNB_BINDINGS);
         if (envVars.stream()
                 .anyMatch(v -> (System.getenv(v) == null || System.getenv(v).trim().length() == 0))) {
             System.err.format("Missing one of the following environment variables: %s%n", envVars);
@@ -199,6 +215,7 @@ public class Processor {
     private Processor(List<FullyQualifiedTopic> inputs,
                       List<FullyQualifiedTopic> outputs,
                       List<String> inputNames,
+                      List<String> startOffsets,
                       List<String> outputNames,
                       List<String> outputContentTypes,
                       String group,
@@ -207,6 +224,7 @@ public class Processor {
         this.inputs = inputs;
         this.outputs = outputs;
         this.inputNames = inputNames;
+        this.startOffsets = startOffsets;
         this.outputNames = outputNames;
         Set<FullyQualifiedTopic> allGateways = new HashSet<>(inputs);
         allGateways.addAll(outputs);
@@ -235,18 +253,18 @@ public class Processor {
     }
 
     public void run() {
-        Flux.fromIterable(inputs)
-                .flatMap(fullyQualifiedTopic -> {
-                    ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub inputLiiklus = liiklusInstancesPerAddress.get(fullyQualifiedTopic.getGatewayAddress());
-                    return inputLiiklus.subscribe(subscribeRequestForInput(fullyQualifiedTopic.getTopic()))
+        Flux.fromIterable(inputs).zipWithIterable(startOffsets)
+                .flatMap(inputTopic -> {
+                    ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub inputLiiklus = liiklusInstancesPerAddress.get(inputTopic.getT1().getGatewayAddress());
+                    return inputLiiklus.subscribe(subscribeRequestForInput(inputTopic))
                             .filter(SubscribeReply::hasAssignment)
                             .map(SubscribeReply::getAssignment)
                             .flatMap(
                                     assignment -> inputLiiklus
                                             .receive(receiveRequestForAssignment(assignment))
-                                            .delayUntil(receiveReply -> ack(fullyQualifiedTopic, inputLiiklus, receiveReply, assignment))
+                                            .delayUntil(receiveReply -> ack(inputTopic.getT1(), inputLiiklus, receiveReply, assignment))
                             )
-                            .map(receiveReply -> toRiffSignal(receiveReply, fullyQualifiedTopic));
+                            .map(receiveReply -> toRiffSignal(receiveReply, inputTopic.getT1()));
                 })
                 .takeUntilOther(killSignal)
                 .transform(this::riffWindowing)
@@ -348,11 +366,11 @@ public class Processor {
 
     }
 
-    private SubscribeRequest subscribeRequestForInput(String topic) {
+    private SubscribeRequest subscribeRequestForInput(Tuple2<FullyQualifiedTopic, String> topicAddressAndOffset) {
         return SubscribeRequest.newBuilder()
-                .setTopic(topic)
+                .setTopic(topicAddressAndOffset.getT1().getTopic())
                 .setGroup(group)
-                .setAutoOffsetReset(SubscribeRequest.AutoOffsetReset.LATEST)
+                .setAutoOffsetReset(topicAddressAndOffset.getT2().equals("earliest") ? SubscribeRequest.AutoOffsetReset.EARLIEST : SubscribeRequest.AutoOffsetReset.LATEST)
                 .build();
     }
 
