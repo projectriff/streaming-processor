@@ -33,13 +33,15 @@ jobs:
     - uses: actions/setup-java@v1
       with:
         java-version: '8.x'
+    - name: gcloud login
+      run: |
+        gcloud config set disable_prompts True
+        gcloud auth activate-service-account --key-file <(echo $GCLOUD_CLIENT_SECRET | base64 --decode)
+        gcloud auth configure-docker
+      shell: bash
+      env:
+        GCLOUD_CLIENT_SECRET: ${{ secrets.GCLOUD_CLIENT_SECRET }}
     - name: Publish artifacts
       run: .github/workflows/deploy-image.sh
-      env:
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     - name: Publish native artifacts
       run: .github/workflows/deploy-native-image.sh
-      env:
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}

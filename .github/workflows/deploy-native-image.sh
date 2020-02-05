@@ -9,7 +9,6 @@ function build() {
 }
 
 function push() {
-  docker login -u "${DOCKER_USERNAME}" -p "$(echo ${DOCKER_PASSWORD} | base64 --decode)"
   docker tag ${1} ${2}
   docker push ${2}
 }
@@ -17,7 +16,7 @@ function push() {
 function main() {
   ./mvnw -q -B package -Dmaven.test.skip=true
 
-  local base_image="projectriff/streaming-processor-native"
+  local base_image="gcr.io/projectriff/streaming-processor/processor-native"
   local version=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout | tail -n1)
   local git_sha=$(git rev-parse HEAD)
   local git_timestamp=$(TZ=UTC git show --quiet --date='format-local:%Y%m%d%H%M%S' --format="%cd")

@@ -6,15 +6,13 @@ set -o pipefail
 
 function deploy() {
   ./mvnw -B com.google.cloud.tools:jib-maven-plugin:1.3.0:build \
-    -Djib.to.image="${1}" \
-    -Djib.to.auth.username="${DOCKER_USERNAME}" \
-    -Djib.to.auth.password="$(echo ${DOCKER_PASSWORD} | base64 --decode)"
+    -Djib.to.image="${1}"
 }
 
 function main() {
   ./mvnw -q -B compile -Dmaven.test.skip=true
 
-  local base_image="projectriff/streaming-processor"
+  local base_image="gcr.io/projectriff/streaming-processor/processor"
   local version=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout | tail -n1)
   local git_sha=$(git rev-parse HEAD)
   local git_timestamp=$(TZ=UTC git show --quiet --date='format-local:%Y%m%d%H%M%S' --format="%cd")
