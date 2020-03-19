@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.UnicastProcessor;
 import reactor.util.function.Tuple2;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.Socket;
@@ -49,7 +50,7 @@ public class Processor {
     /**
      * ENV VAR key holding the directory path where streams metadata can be found.
      */
-    private static final String CNB_BINDINGS = "CNB_BINDINGS";
+    public static final String CNB_BINDINGS = "CNB_BINDINGS";
 
     /**
      * ENV VAR key holding the address of the function RPC, as a {@code host:port} string.
@@ -89,12 +90,12 @@ public class Processor {
     /**
      * The ordered input streams for the function, in parsed form.
      */
-    private final List<FullyQualifiedTopic> inputs;
+    private final List<StreamBinding> inputs;
 
     /**
      * The ordered output streams for the function, in parsed form.
      */
-    private final List<FullyQualifiedTopic> outputs;
+    private final List<StreamBinding> outputs;
 
     /**
      * The ordered logical names for input parameters of the function.
@@ -151,9 +152,10 @@ public class Processor {
         }
         List<String> outputNames = Arrays.asList(System.getenv(OUTPUT_NAMES).split(","));
 
-        List<FullyQualifiedTopic> inputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "input", inputNames.size());
-        List<FullyQualifiedTopic> outputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "output", outputNames.size());
-        List<String> outputContentTypes = resolveContentTypes(System.getenv(CNB_BINDINGS), outputNames.size());
+
+        StreamBindingReader streamBindingReader = StreamBindingReader.init(new File(System.getenv(CNB_BINDINGS)));
+        List<StreamBinding> inputStreamBindings = streamBindingReader.readInputStreamBindings(inputNames.size());
+        List<StreamBinding> outputStreamBindings = streamBindingReader.readOutputStreamBindings(outputNames.size());
 
         assertHttpConnectivity(functionAddress);
         Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
@@ -161,12 +163,12 @@ public class Processor {
                 .build();
 
         Processor processor = new Processor(
-                inputAddressableTopics,
-                outputAddressableTopics,
+                inputStreamBindings,
+                outputStreamBindings,
                 inputNames,
                 startOffsets,
                 outputNames,
-                outputContentTypes,
+                outputStreamBindings.stream().map(binding -> binding.getMetadata().get(StreamBinding.CONTENT_TYPE)).collect(Collectors.toList()),
                 System.getenv(GROUP),
                 ReactorRiffGrpc.newReactorStub(fnChannel));
 
@@ -211,8 +213,8 @@ public class Processor {
         }
     }
 
-    private Processor(List<FullyQualifiedTopic> inputs,
-                      List<FullyQualifiedTopic> outputs,
+    private Processor(List<StreamBinding> inputs,
+                      List<StreamBinding> outputs,
                       List<String> inputNames,
                       List<String> startOffsets,
                       List<String> outputNames,
@@ -225,30 +227,13 @@ public class Processor {
         this.inputNames = inputNames;
         this.startOffsets = startOffsets;
         this.outputNames = outputNames;
-        Set<FullyQualifiedTopic> allGateways = new HashSet<>(inputs);
+        Set<StreamBinding> allGateways = new HashSet<>(inputs);
         allGateways.addAll(outputs);
 
         this.liiklusInstancesPerAddress = indexByAddress(allGateways);
         this.outputContentTypes = outputContentTypes;
         this.riffStub = riffStub;
         this.group = group;
-    }
-
-    public static List<FullyQualifiedTopic> resolveStreams(String bindingsDir, String prefix, int count) {
-        return IntStream.range(0, count)
-                .mapToObj(i -> resolveStream(bindingsDir, String.format("%s_%03d", prefix, i)))
-                .collect(Collectors.toList());
-    }
-
-    private static FullyQualifiedTopic resolveStream(String bindingsDir, String path) {
-        Path root = Paths.get(bindingsDir).resolve(path).resolve("secret");
-        try {
-            String gateway = new String(Files.readAllBytes(root.resolve("gateway")), StandardCharsets.UTF_8);
-            String topic = new String(Files.readAllBytes(root.resolve("topic")), StandardCharsets.UTF_8);
-            return new FullyQualifiedTopic(gateway, topic);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     public void run() {
@@ -284,12 +269,12 @@ public class Processor {
 
     private Publisher<? extends PublishReply> publishOutput(OutputSignal m) {
         OutputFrame next = m.getData();
-        FullyQualifiedTopic output = outputs.get(next.getResultIndex());
+        StreamBinding output = outputs.get(next.getResultIndex());
         ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub outputLiiklus = liiklusInstancesPerAddress.get(output.getGatewayAddress());
         return outputLiiklus.publish(createPublishRequest(next, output.getTopic()));
     }
 
-    private Mono<Empty> ack(FullyQualifiedTopic topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply, Assignment assignment) {
+    private Mono<Empty> ack(StreamBinding topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply, Assignment assignment) {
         System.out.format("ACKing %s for group %s: offset=%d, part=%d%n", topic.getTopic(), this.group, receiveReply.getRecord().getOffset(), assignment.getPartition());
         return stub.ack(AckRequest.newBuilder()
                 .setGroup(this.group)
@@ -300,9 +285,9 @@ public class Processor {
     }
 
     private static Map<String, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub> indexByAddress(
-            Collection<FullyQualifiedTopic> fullyQualifiedTopics) {
-        return fullyQualifiedTopics.stream()
-                .map(FullyQualifiedTopic::getGatewayAddress)
+            Collection<StreamBinding> streamBindings) {
+        return streamBindings.stream()
+                .map(StreamBinding::getGatewayAddress)
                 .distinct()
                 .collect(Collectors.toMap(
                         address -> address,
@@ -354,10 +339,10 @@ public class Processor {
     /**
      * This converts a liiklus received message (in CloudEvent format) into an RPC {@link InputFrame}.
      */
-    private InputFrame toRiffSignal(ReceiveReply receiveReply, FullyQualifiedTopic fullyQualifiedTopic) {
-        int inputIndex = inputs.indexOf(fullyQualifiedTopic);
+    private InputFrame toRiffSignal(ReceiveReply receiveReply, StreamBinding streamBinding) {
+        int inputIndex = inputs.indexOf(streamBinding);
         if (inputIndex == -1) {
-            throw new RuntimeException("Unknown topic: " + fullyQualifiedTopic);
+            throw new RuntimeException("Unknown topic: " + streamBinding);
         }
         if (receiveReply.getReplyCase() == LIIKLUS_EVENT_RECORD) {
             LiiklusEvent event = receiveReply.getLiiklusEventRecord().getEvent();
@@ -373,20 +358,11 @@ public class Processor {
 
     }
 
-    private SubscribeRequest subscribeRequestForInput(Tuple2<FullyQualifiedTopic, String> topicAddressAndOffset) {
+    private SubscribeRequest subscribeRequestForInput(Tuple2<StreamBinding, String> topicAddressAndOffset) {
         return SubscribeRequest.newBuilder()
                 .setTopic(topicAddressAndOffset.getT1().getTopic())
                 .setGroup(group)
                 .setAutoOffsetReset(topicAddressAndOffset.getT2().equals("earliest") ? EARLIEST : LATEST)
                 .build();
-    }
-
-    private static List<String> resolveContentTypes(String bindingsDir, int count) throws IOException {
-        List<String> result = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            Path path = Paths.get(bindingsDir).resolve(String.format("output_%03d", i)).resolve("metadata").resolve("contentType");
-            result.add(new String(Files.readAllBytes(path), StandardCharsets.UTF_8));
-        }
-        return result;
     }
 }
