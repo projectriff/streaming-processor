@@ -5,6 +5,7 @@ import com.google.protobuf.Empty;
 import io.grpc.Channel;
 import io.grpc.netty.NettyChannelBuilder;
 import io.projectriff.invoker.rpc.*;
+import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Hooks;
 import reactor.core.publisher.Mono;
@@ -22,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -250,7 +252,8 @@ public class Processor {
     }
 
     public void run() {
-        Flux.fromIterable(inputs).zipWithIterable(startOffsets)
+        Flux.fromIterable(inputs)
+                .zipWithIterable(startOffsets)
                 .flatMap(inputTopic -> {
                     ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub inputLiiklus = liiklusInstancesPerAddress.get(inputTopic.getT1().getGatewayAddress());
                     return inputLiiklus.subscribe(subscribeRequestForInput(inputTopic))
@@ -266,15 +269,24 @@ public class Processor {
                 .takeUntilOther(killSignal)
                 .transform(this::riffWindowing)
                 .map(this::invoke)
-                .concatMap(flux ->
-                        flux.concatMap(m -> {
-                            OutputFrame next = m.getData();
-                            FullyQualifiedTopic output = outputs.get(next.getResultIndex());
-                            ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub outputLiiklus = liiklusInstancesPerAddress.get(output.getGatewayAddress());
-                            return outputLiiklus.publish(createPublishRequest(next, output.getTopic()));
-                        })
-                )
+                .concatMap(this::extractWindowResults)
+                .concatMap(this::publishOutput)
                 .blockLast();
+    }
+
+    private <T> Flux<Flux<T>> riffWindowing(Flux<T> linear) {
+        return linear.window(Duration.ofSeconds(60));
+    }
+
+    private Flux<OutputSignal> extractWindowResults(Flux<OutputSignal> outputSignals) {
+        return outputSignals;
+    }
+
+    private Publisher<? extends PublishReply> publishOutput(OutputSignal m) {
+        OutputFrame next = m.getData();
+        FullyQualifiedTopic output = outputs.get(next.getResultIndex());
+        ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub outputLiiklus = liiklusInstancesPerAddress.get(output.getGatewayAddress());
+        return outputLiiklus.publish(createPublishRequest(next, output.getTopic()));
     }
 
     private Mono<Empty> ack(FullyQualifiedTopic topic, ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub, ReceiveReply receiveReply, Assignment assignment) {
@@ -337,10 +349,6 @@ public class Processor {
 
     private static ReceiveRequest receiveRequestForAssignment(Assignment assignment) {
         return ReceiveRequest.newBuilder().setAssignment(assignment).setFormat(LIIKLUS_EVENT).build();
-    }
-
-    private <T> Flux<Flux<T>> riffWindowing(Flux<T> linear) {
-        return linear.window(Duration.ofSeconds(60));
     }
 
     /**
