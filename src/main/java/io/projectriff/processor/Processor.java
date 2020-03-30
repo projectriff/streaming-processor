@@ -141,13 +141,17 @@ public class Processor {
 
         String functionAddress = System.getenv(FUNCTION);
 
+        List<String> startOffsets = Arrays.asList(System.getenv(INPUT_START_OFFSETS).split(","));
         List<String> inputNames = Arrays.asList(System.getenv(INPUT_NAMES).split(","));
+        if (startOffsets.size() != inputNames.size()) {
+            System.err.format("%s (%d element(s)) should have as many elements as %s (%d element(s))", INPUT_START_OFFSETS, startOffsets.size(), INPUT_NAMES, inputNames.size());
+            System.exit(2);
+        }
         List<String> outputNames = Arrays.asList(System.getenv(OUTPUT_NAMES).split(","));
 
         List<FullyQualifiedTopic> inputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "input", inputNames.size());
         List<FullyQualifiedTopic> outputAddressableTopics = resolveStreams(System.getenv(CNB_BINDINGS), "output", outputNames.size());
         List<String> outputContentTypes = resolveContentTypes(System.getenv(CNB_BINDINGS), outputNames.size());
-        List<String> startOffsets = Arrays.asList(System.getenv(INPUT_START_OFFSETS).split(","));
 
         assertHttpConnectivity(functionAddress);
         Channel fnChannel = NettyChannelBuilder.forTarget(functionAddress)
