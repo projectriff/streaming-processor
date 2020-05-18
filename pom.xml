@@ -23,7 +23,7 @@
 		<java.version>8</java.version>
 		<grpc.version>1.27.2</grpc.version>
 		<protoc.version>3.7.1</protoc.version>
-		<reactive-grpc.version>1.0.0</reactive-grpc.version>
+		<reactive-grpc.version>1.0.1</reactive-grpc.version>
 		<reactor.version>3.3.0.RELEASE</reactor.version>
 	</properties>
 
