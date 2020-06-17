@@ -75,4 +75,4 @@ When run, the processor expects the following environment variables to be set:
 - `GROUP`: a string identifier that will be used as the _consumer group_ for the processor.
 - `FUNCTION`: location of the function RPC server, in the form `host:port`,
 - `INPUT_START_OFFSETS`: a comma separated list of N strings (each `earliest` or `latest`) to drive where to start subscribing from for each input,
-- `CNB_BINDINGS`: directory location of stream https://github.com/projectriff/riff/blob/master/rfc/rfc-0002-bindings.md[bindings information]. The processor will read N bindings at `$CNB_BINDINGS/input_xxx` and M bindings at `$CNB_BINDINGS/output_xxx`.
+- `CNB_BINDINGS`: directory location of stream https://github.com/projectriff/riff/blob/main/rfc/rfc-0002-bindings.md[bindings information]. The processor will read N bindings at `$CNB_BINDINGS/input_xxx` and M bindings at `$CNB_BINDINGS/output_xxx`.
